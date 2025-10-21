@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import wordsCsv from "./words.csv?raw"; // CSV: A=No. / B=問題 / C=解答（複数は "/" 区切り推奨）/ D=レベル(例: Unit1/Unit2)
+import wordsCsv from "./words.csv?raw"; // CSV: A=No. / B=問題 / C=解答（複数は "/" 区切り推奨）/ D=レベル(例: Unit１/Unit２)
 
 // ========= 設定 =========
 const QUESTION_COUNT = 20;
@@ -9,7 +9,7 @@ const SKIP_HEADER = false;                 // CSV 先頭にヘッダーがある
 const TARGET_SHEET_NAME = "英単語ログ";     // ← 送信先シート名（任意に変更OK）
 const MODE_FIXED = "日本語→英単語";
 
-const DIFF_OPTIONS = ["Unit1", "Unit2"]; // ✅ 難易度（ユニット）
+const DIFF_OPTIONS = ["Unit１", "Unit２"]; // ✅ 難易度（ユニット）
 
 // ========= ユーティリティ =========
 function parseCsvRaw(csvText) {
@@ -114,7 +114,7 @@ export default function App() {
         no: String(r[0] ?? "").trim(),
         jp: String(r[1] ?? "").trim(),  // 表示（日本語の設問）
         en: String(r[2] ?? "").trim(),  // 正解（英単語・複数候補OK）
-        level: String(r[3] ?? "").trim(), // Unit1 / Unit2 を推奨
+        level: String(r[3] ?? "").trim(), // Unit１ / Unit２ を推奨
       }));
     setAllItems(mapped);
   }, []);
@@ -122,14 +122,14 @@ export default function App() {
   // ✅ 難易度でプールを切替
   const pool = useMemo(() => {
     if (!allItems.length) return [];
-    // A) CSV 4列目に Unit1/Unit2 が入っていればそれで厳密にフィルタ
+    // A) CSV 4列目に Unit１/Unit２ が入っていればそれで厳密にフィルタ
     const hasUnits = allItems.some(it => /unit\s*1/i.test(it.level) || /unit\s*2/i.test(it.level));
     if (hasUnits) {
       return allItems.filter(it => new RegExp(`^${difficulty}$`, "i").test(it.level));
     }
-    // B) フォールバック：CSVにレベルが無い場合は前半=Unit1、後半=Unit2
+    // B) フォールバック：CSVにレベルが無い場合は前半=Unit１、後半=Unit２
     const mid = Math.ceil(allItems.length / 2);
-    return difficulty === "Unit1" ? allItems.slice(0, mid) : allItems.slice(mid);
+    return difficulty === "Unit１" ? allItems.slice(0, mid) : allItems.slice(mid);
   }, [allItems, difficulty]);
 
   // 開始可能条件
@@ -211,7 +211,7 @@ export default function App() {
       timestamp: new Date().toISOString(),
       user_name: name,
       mode: MODE_FIXED,          // 固定
-      difficulty,                // ✅ 選択した難易度（Unit1/Unit2）
+      difficulty,                // ✅ 選択した難易度（Unit１/Unit２）
       score: answers.filter((a) => a && a.ok).length,
       duration_sec: USE_TOTAL_TIMER ? (TOTAL_TIME_SEC_DEFAULT - totalLeft) : null,
       question_set_id: `auto-${Date.now()}`,
