@@ -5,7 +5,7 @@ import wordsCsv from "./words.csv?raw"; // CSV: A=No. / B=問題 / C=解答（�
 const QUESTION_COUNT = 20;
 const TOTAL_TIME_SEC_DEFAULT = 300; // 全体5分
 const USE_TOTAL_TIMER = true;
-const SKIP_HEADER = true;                 // CSV 先頭にヘッダーがあるなら true
+const SKIP_HEADER = false;                 // CSV 先頭にヘッダーがあるなら true
 const TARGET_SHEET_NAME = "英単語ログ";     // ← 送信先シート名（任意に変更OK）
 const MODE_FIXED = "日本語→英単語";
 
