@@ -8,6 +8,7 @@ const USE_TOTAL_TIMER = true;
 const SKIP_HEADER = false;                 // CSV 先頭にヘッダーがあるなら true
 const TARGET_SHEET_NAME = "英単語ログ";     // ← 送信先シート名（任意に変更OK）
 const MODE_FIXED = "日本語→英単語";
+const APP_NAME = import.meta.env.VITE_APP_NAME;
 
 const DIFF_OPTIONS = ["Unit1", "Unit2"]; // ✅ 難易度（ユニット）
 
@@ -208,6 +209,7 @@ export default function App() {
     if (!url) throw new Error("VITE_GAS_URL is empty");
 
     const payload = {
+      subject: APP_NAME, // ★追加：GAS側のタブ名に使う（= VITE_APP_NAME）
       timestamp: new Date().toISOString(),
       user_name: name,
       mode: MODE_FIXED,          // 固定
