@@ -11,6 +11,11 @@ const TARGET_SHEET_NAME = "英単語ログ";
 const MODE_FIXED = "日本語→英単語";
 const APP_NAME = import.meta.env.VITE_APP_NAME;
 
+// 手入力補助用の候補（入力は自由。これ以外でもOK）
+const SUGGEST_UNITS = [
+  "Unit1","Unit2","Unit3","Unit4","Unit5","Unit6","Unit7","Unit8"
+];
+
 // ========= ユーティリティ =========
 function canonLevelLabel(s) {
   if (!s) return "";
@@ -18,7 +23,7 @@ function canonLevelLabel(s) {
     .normalize("NFKC")    // 全角→半角など互換正規化
     .toLowerCase()        // 大小無視
     .replace(/\s+/g, "")  // 空白無視
-    .replace(/[-_]/g, ""); // ハイフン/アンダースコア無視
+    .replace(/[-_]/g, "");// ハイフン/アンダースコア無視
 }
 
 function parseCsvRaw(csvText) {
@@ -58,7 +63,6 @@ function splitAnswerCandidates(s) {
   return s.split(DELIMS).map(part => normalizeEn(part)).filter(Boolean);
 }
 
-
 function judgeAnswerJPtoEN(user, item) {
   const userNorm = normalizeEn(user);
   const candidates = splitAnswerCandidates(item.en); // 例: "color/colour" → ["color","colour"]
@@ -81,9 +85,8 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [sent, setSent] = useState(false);
 
-  // ユニット（難易度）候補：CSVから動的生成。初期値は暫定。
-  const [diffOptions, setDiffOptions] = useState(["Unit1", "Unit2"]);
-  const [difficulty, setDifficulty] = useState("Unit1");
+  // 手入力ユニット
+  const [difficulty, setDifficulty] = useState(""); // 完全手入力
 
   // グローバル state
   const [name, setName] = useState("");
@@ -102,58 +105,38 @@ function App() {
   const totalPausedRef = useRef(false); // ★全体タイマー一時停止フラグ
 
   // CSV読み込み（No./英単語/日本語/Unit）
- useEffect(() => {
-  let rows = parseCsvRaw(wordsCsv);
-  if (!rows || !rows.length) {
-    setAllItems([]);
-    setDiffOptions(["Unit1", "Unit2"]);
-    return;
-  }
+  useEffect(() => {
+    let rows = parseCsvRaw(wordsCsv);
+    if (!rows || !rows.length) {
+      setAllItems([]);
+      return;
+    }
 
-  // ヘッダー除去（1行目に "No.,英単語,日本語,Unit" がある前提）
-  const header = rows[0].map(String);
-  const looksHeader =
-    /No|番号/i.test(header[0] ?? "") ||
-    /英単語|english|word/i.test(header[1] ?? "") ||
-    /日本語|意味|meaning/i.test(header[2] ?? "") ||
-    /Unit|レベル|level|難易度/i.test(header[3] ?? "");
-  if (SKIP_HEADER || looksHeader) rows = rows.slice(1);
+    // ヘッダー除去（1行目に "No.,英単語,日本語,Unit" がある前提）
+    const header = rows[0].map(String);
+    const looksHeader =
+      /No|番号/i.test(header[0] ?? "") ||
+      /英単語|english|word/i.test(header[1] ?? "") ||
+      /日本語|意味|meaning/i.test(header[2] ?? "") ||
+      /Unit|レベル|level|難易度/i.test(header[3] ?? "");
+    if (SKIP_HEADER || looksHeader) rows = rows.slice(1);
 
-  // ① ユニット候補は "全行" から抽出（en/jp 空でも拾う）
-  const seen = new Map(); // key: canonical, value: original label
-  for (const r of rows) {
-    const raw = String(r[3] ?? "").trim(); // D列: Unit
-    if (!raw) continue;
-    const key = canonLevelLabel(raw);
-    if (!key) continue;
-    if (!seen.has(key)) seen.set(key, raw);
-  }
-  const uniqUnits = Array.from(seen.values());
-  if (uniqUnits.length) {
-    setDiffOptions(uniqUnits);
-    setDifficulty(prev => {
-      const prevKey = canonLevelLabel(prev);
-      const exists = uniqUnits.some(u => canonLevelLabel(u) === prevKey);
-      return exists ? prev : uniqUnits[0];
-    });
-  }
+    // 出題用データ（B:英単語, C:日本語, D:Unit）
+    const mapped = rows
+      .filter(r => r.length >= 4 && r[1] && r[2]) // 英/日がある行のみ
+      .map(r => ({
+        no: String(r[0] ?? "").trim(),
+        en: String(r[1] ?? "").trim(),   // 英単語（解答）
+        jp: String(r[2] ?? "").trim(),   // 日本語（問題）
+        level: String(r[3] ?? "").trim() // Unit（難易度）
+      }));
+    setAllItems(mapped);
+  }, []);
 
-  // ② 出題用データは従来通り（en/jp がある行のみ）
-  const mapped = rows
-    .filter(r => r.length >= 4 && r[1] && r[2])
-    .map(r => ({
-      no: String(r[0] ?? "").trim(),
-      en: String(r[1] ?? "").trim(),   // 英単語（解答）
-      jp: String(r[2] ?? "").trim(),   // 日本語（問題）
-      level: String(r[3] ?? "").trim() // Unit（難易度）
-    }));
-  setAllItems(mapped);
-}, []);
-
-
-  // ✅ 難易度でプールを切替（level列がある場合は厳密一致、無い場合は前半/後半）
+  // ✅ 手入力ユニットでプールを切替（レベル列がある場合は厳密一致：表記ゆれは正規化で吸収）
   const pool = useMemo(() => {
     if (!allItems.length) return [];
+    if (!difficulty.trim()) return [];
     const same = (a, b) => canonLevelLabel(a) === canonLevelLabel(b);
 
     const hasLevelCol = allItems.some(it => String(it.level || "").trim().length > 0);
@@ -161,17 +144,14 @@ function App() {
       return allItems.filter(it => same(it.level, difficulty));
     }
 
-    // フォールバック：CSVにレベルが無い場合は前半=diffOptions[0]、後半=diffOptions[1]扱い
-    const mid = Math.ceil(allItems.length / 2);
-    const idx = diffOptions.findIndex(opt => same(opt, difficulty));
-    return idx === 0 ? allItems.slice(0, mid) : allItems.slice(mid);
-  }, [allItems, difficulty, diffOptions]);
+    // 万一レベル列が無いCSVのときは、手入力でも全件（必要なら任意で変えてOK）
+    return allItems;
+  }, [allItems, difficulty]);
 
   // 開始可能条件
   const canStart = useMemo(() => {
-    const exists = diffOptions.some(opt => canonLevelLabel(opt) === canonLevelLabel(difficulty));
-    return pool.length >= 1 && name.trim().length > 0 && exists;
-  }, [pool.length, name, difficulty, diffOptions]);
+    return pool.length >= 1 && name.trim().length > 0 && difficulty.trim().length > 0;
+  }, [pool.length, name, difficulty]);
 
   // qIndex 変更時/quiz開始時に入力欄リセット
   useEffect(() => { if (step === "quiz") setValue(""); }, [qIndex, step]);
@@ -239,7 +219,7 @@ function App() {
       timestamp: new Date().toISOString(),
       user_name: name,
       mode: MODE_FIXED,
-      difficulty,
+      difficulty, // 手入力ユニット名をそのまま送る
       score: answers.filter((a) => a && a.ok).length,
       duration_sec: USE_TOTAL_TIMER ? (TOTAL_TIME_SEC_DEFAULT - totalLeft) : null,
       question_set_id: `auto-${Date.now()}`,
@@ -267,7 +247,7 @@ function App() {
     content = (
       <div style={wrapStyle}>
         <h1 style={{ fontSize: 28, marginBottom: 8 }}>中３英単語 不規則系単語</h1>
-        <p style={{ opacity: 0.8, marginBottom: 16 }}>名前とユニットを選んでスタート</p>
+        <p style={{ opacity: 0.8, marginBottom: 16 }}>名前とユニットを入力してスタート</p>
 
         <label style={labelStyle}>あなたの名前</label>
         <input
@@ -277,28 +257,23 @@ function App() {
           onChange={(e) => setName(e.target.value)}
         />
 
-        {/* ✅ 難易度（ユニット）選択 */}
-        <label style={labelStyle}>ユニットを選択</label>
-        <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-          {diffOptions.map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => setDifficulty(opt)}
-              style={{
-                ...chipStyle,
-                background: canonLevelLabel(difficulty) === canonLevelLabel(opt) ? "#111" : "#f3f3f3",
-                color: canonLevelLabel(difficulty) === canonLevelLabel(opt) ? "#fff" : "#111",
-                borderColor: canonLevelLabel(difficulty) === canonLevelLabel(opt) ? "#111" : "#ddd",
-              }}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
+        {/* ✅ ユニット名は手入力（候補はUnit1〜Unit8を表示） */}
+        <label style={labelStyle}>ユニット名を入力（例: Unit3）</label>
+        <input
+          list="unit-suggestions"
+          style={inputStyle}
+          placeholder="Unit3"
+          value={difficulty}
+          onChange={(e) => setDifficulty(e.target.value)}
+        />
+        <datalist id="unit-suggestions">
+          {SUGGEST_UNITS.map(opt => <option key={opt} value={opt} />)}
+        </datalist>
 
         <div style={{ fontSize: 12, opacity: 0.7 }}>
-          {pool.length ? `選択中の出題範囲：${pool.length}件` : "読込中または該当なし"}
+          {difficulty.trim()
+            ? (pool.length ? `選択中の出題範囲：${pool.length}件` : "該当なし（ユニット名・CSVを確認）")
+            : "ユニット名を入力してください"}
         </div>
 
         <button
@@ -383,7 +358,7 @@ function App() {
       <div style={wrapStyle}>
         <h2 style={{ fontSize: 24, marginBottom: 8 }}>結果</h2>
         <div style={{ marginBottom: 8 }}>
-          名前：<b>{name}</b> ／ 形式：{MODE_FIXED} ／ 難易度：{difficulty}
+          名前：<b>{name}</b> ／ 形式：{MODE_FIXED} ／ 難易度：{difficulty || "-" }
         </div>
         <div style={{ fontSize: 20, marginBottom: 16 }}>
           得点：{score} / {answers.length}
