@@ -89,11 +89,40 @@ function sampleUnique(arr, k) {
 }
 
 // ========= メインコンポーネント =========
-export default function App() {
-  // 送信UI
-  const [sending, setSending] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [sent, setSent] = useState(false);
+function App() {
+  // ここに全ての state / useEffect / ハンドラ / return を入れる
+  // 例：
+  const [diffOptions, setDiffOptions] = useState(["Unit1", "Unit2"]);
+  const [difficulty, setDifficulty] = useState("Unit1");
+
+  useEffect(() => {
+    // ... CSV → mapped
+    setAllItems(mapped);
+
+    // レベル値のユニーク抽出
+    const seen = new Map();
+    for (const it of mapped) {
+      const raw = (it.level ?? "").trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (!seen.has(key)) seen.set(key, raw);
+    }
+    const uniq = Array.from(seen.values());
+    if (uniq.length) {
+      setDiffOptions(uniq);
+      setDifficulty(prev => {
+        const prevKey = String(prev).trim().toLowerCase();
+        const exists = uniq.some(u => u.trim().toLowerCase() === prevKey);
+        return exists ? prev : uniq[0];
+      });
+    }
+  }, []);
+
+  // ...（既存の pool / canStart / 画面描画ロジックなど）
+
+  return <>{content}</>;
+}
+
 
   // グローバル state
   const [name, setName] = useState("");
