@@ -58,6 +58,7 @@ function splitAnswerCandidates(s) {
   return s.split(DELIMS).map(part => normalizeEn(part)).filter(Boolean);
 }
 
+
 function judgeAnswerJPtoEN(user, item) {
   const userNorm = normalizeEn(user);
   const candidates = splitAnswerCandidates(item.en); // 例: "color/colour" → ["color","colour"]
@@ -101,54 +102,54 @@ function App() {
   const totalPausedRef = useRef(false); // ★全体タイマー一時停止フラグ
 
   // CSV読み込み（No./英単語/日本語/Unit）
-  useEffect(() => {
-    let rows = parseCsvRaw(wordsCsv);
+ useEffect(() => {
+  let rows = parseCsvRaw(wordsCsv);
+  if (!rows || !rows.length) {
+    setAllItems([]);
+    setDiffOptions(["Unit1", "Unit2"]);
+    return;
+  }
 
-    if (!rows || !rows.length) {
-      setAllItems([]);
-      setDiffOptions(["Unit1", "Unit2"]);
-      return;
-    }
+  // ヘッダー除去（1行目に "No.,英単語,日本語,Unit" がある前提）
+  const header = rows[0].map(String);
+  const looksHeader =
+    /No|番号/i.test(header[0] ?? "") ||
+    /英単語|english|word/i.test(header[1] ?? "") ||
+    /日本語|意味|meaning/i.test(header[2] ?? "") ||
+    /Unit|レベル|level|難易度/i.test(header[3] ?? "");
+  if (SKIP_HEADER || looksHeader) rows = rows.slice(1);
 
-    // ヘッダー除去（1行目に "No.,英単語,日本語,Unit" がある前提）
-    const header = rows[0].map(String);
-    const looksHeader =
-      /No|番号/i.test(header[0] ?? "") ||
-      /英単語|english|word/i.test(header[1] ?? "") ||
-      /日本語|意味|meaning/i.test(header[2] ?? "") ||
-      /Unit|レベル|level|難易度/i.test(header[3] ?? "");
-    if (SKIP_HEADER || looksHeader) rows = rows.slice(1);
+  // ① ユニット候補は "全行" から抽出（en/jp 空でも拾う）
+  const seen = new Map(); // key: canonical, value: original label
+  for (const r of rows) {
+    const raw = String(r[3] ?? "").trim(); // D列: Unit
+    if (!raw) continue;
+    const key = canonLevelLabel(raw);
+    if (!key) continue;
+    if (!seen.has(key)) seen.set(key, raw);
+  }
+  const uniqUnits = Array.from(seen.values());
+  if (uniqUnits.length) {
+    setDiffOptions(uniqUnits);
+    setDifficulty(prev => {
+      const prevKey = canonLevelLabel(prev);
+      const exists = uniqUnits.some(u => canonLevelLabel(u) === prevKey);
+      return exists ? prev : uniqUnits[0];
+    });
+  }
 
-    // CSV → データ化（列構成：No./英単語/日本語/Unit）
-    const mapped = rows
-      .filter(r => r.length >= 4 && r[1] && r[2])
-      .map(r => ({
-        no: String(r[0] ?? "").trim(),
-        en: String(r[1] ?? "").trim(),   // 英単語（解答）
-        jp: String(r[2] ?? "").trim(),   // 日本語（問題）
-        level: String(r[3] ?? "").trim() // Unit（難易度）
-      }));
-    setAllItems(mapped);
+  // ② 出題用データは従来通り（en/jp がある行のみ）
+  const mapped = rows
+    .filter(r => r.length >= 4 && r[1] && r[2])
+    .map(r => ({
+      no: String(r[0] ?? "").trim(),
+      en: String(r[1] ?? "").trim(),   // 英単語（解答）
+      jp: String(r[2] ?? "").trim(),   // 日本語（問題）
+      level: String(r[3] ?? "").trim() // Unit（難易度）
+    }));
+  setAllItems(mapped);
+}, []);
 
-    // 難易度ボタン（Unit列のユニーク値を抽出：表記ゆれ吸収）
-    const seen = new Map(); // key: canonical, value: original label
-    for (const it of mapped) {
-      const raw = (it.level || "").trim();
-      if (!raw) continue;
-      const key = canonLevelLabel(raw);
-      if (!key) continue;
-      if (!seen.has(key)) seen.set(key, raw);
-    }
-    const uniq = Array.from(seen.values());
-    if (uniq.length) {
-      setDiffOptions(uniq);
-      setDifficulty(prev => {
-        const prevKey = canonLevelLabel(prev);
-        const exists = uniq.some(u => canonLevelLabel(u) === prevKey);
-        return exists ? prev : uniq[0];
-      });
-    }
-  }, []);
 
   // ✅ 難易度でプールを切替（level列がある場合は厳密一致、無い場合は前半/後半）
   const pool = useMemo(() => {
