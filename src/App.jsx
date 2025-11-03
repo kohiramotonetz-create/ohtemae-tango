@@ -1,3 +1,4 @@
+// App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import wordsCsv from "./words.csv?raw"; // CSV: A=No. / B=問題 / C=解答（複数は "/" 区切り推奨）/ D=レベル(例: Unit1/Unit2)
 
@@ -9,23 +10,6 @@ const SKIP_HEADER = false;                 // CSV 先頭にヘッダーがある
 const TARGET_SHEET_NAME = "英単語ログ";     // ← 送信先シート名（任意に変更OK）
 const MODE_FIXED = "日本語→英単語";
 const APP_NAME = import.meta.env.VITE_APP_NAME;
-
-export default function App() {
-  const [diffOptions, setDiffOptions] = useState(["Unit1", "Unit2"]);
-  const [difficulty, setDifficulty] = useState("Unit1");
-
-  useEffect(() => {
-    // ...
-    setAllItems(mapped);
-    const uniq = [...new Set(mapped.map(it => (it.level ?? "").trim()).filter(Boolean))];
-    if (uniq.length) {
-      setDiffOptions(uniq);
-      setDifficulty(prev => uniq.includes(prev) ? prev : uniq[0]);
-    }
-  }, []);
-}
-
-
 
 // ========= ユーティリティ =========
 function parseCsvRaw(csvText) {
@@ -90,43 +74,17 @@ function sampleUnique(arr, k) {
 
 // ========= メインコンポーネント =========
 function App() {
-  // ここに全ての state / useEffect / ハンドラ / return を入れる
-  // 例：
+  // 送信UI
+  const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [sent, setSent] = useState(false);
+
+  // ユニット（難易度）候補：CSVから動的生成。初期値は暫定。
   const [diffOptions, setDiffOptions] = useState(["Unit1", "Unit2"]);
   const [difficulty, setDifficulty] = useState("Unit1");
 
-  useEffect(() => {
-    // ... CSV → mapped
-    setAllItems(mapped);
-
-    // レベル値のユニーク抽出
-    const seen = new Map();
-    for (const it of mapped) {
-      const raw = (it.level ?? "").trim();
-      if (!raw) continue;
-      const key = raw.toLowerCase();
-      if (!seen.has(key)) seen.set(key, raw);
-    }
-    const uniq = Array.from(seen.values());
-    if (uniq.length) {
-      setDiffOptions(uniq);
-      setDifficulty(prev => {
-        const prevKey = String(prev).trim().toLowerCase();
-        const exists = uniq.some(u => u.trim().toLowerCase() === prevKey);
-        return exists ? prev : uniq[0];
-      });
-    }
-  }, []);
-
-  // ...（既存の pool / canStart / 画面描画ロジックなど）
-
-  return <>{content}</>;
-}
-
-
   // グローバル state
   const [name, setName] = useState("");
-  const [difficulty, setDifficulty] = useState(DIFF_OPTIONS[0]); // ✅ 追加: 難易度（ユニット）
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [answers, setAnswers] = useState([]);
@@ -159,29 +117,50 @@ function App() {
         no: String(r[0] ?? "").trim(),
         jp: String(r[1] ?? "").trim(),  // 表示（日本語の設問）
         en: String(r[2] ?? "").trim(),  // 正解（英単語・複数候補OK）
-        level: String(r[3] ?? "").trim(), // Unit1 / Unit2 を推奨
+        level: String(r[3] ?? "").trim(), // Unit1 / Unit2 / ... 任意
       }));
     setAllItems(mapped);
+
+    // ユニークな level 値を抽出（大小無視・先頭出現の表記を採用）
+    const seen = new Map(); // key: canonical lower, value: original label
+    for (const it of mapped) {
+      const raw = (it.level ?? "").trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (!seen.has(key)) seen.set(key, raw);
+    }
+    const uniq = Array.from(seen.values());
+    if (uniq.length) {
+      setDiffOptions(uniq);
+      setDifficulty(prev => {
+        const prevKey = String(prev).trim().toLowerCase();
+        const exists = uniq.some(u => u.trim().toLowerCase() === prevKey);
+        return exists ? prev : uniq[0]; // 初期選択を安全に
+      });
+    }
   }, []);
 
-  // ✅ 難易度でプールを切替
+  // ✅ 難易度でプールを切替（level列がある場合は厳密一致、無い場合は前半/後半）
   const pool = useMemo(() => {
     if (!allItems.length) return [];
-    // A) CSV 4列目に Unit1/Unit2 が入っていればそれで厳密にフィルタ
-    const hasUnits = allItems.some(it => /unit\s*1/i.test(it.level) || /unit\s*2/i.test(it.level));
-    if (hasUnits) {
-      return allItems.filter(it => new RegExp(`^${difficulty}$`, "i").test(it.level));
+    const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
+    const hasLevelCol = allItems.some(it => String(it.level || "").trim().length > 0);
+    if (hasLevelCol) {
+      return allItems.filter(it => same(it.level, difficulty));
     }
-    // B) フォールバック：CSVにレベルが無い場合は前半=Unit1、後半=Unit2
+
+    // フォールバック：CSVにレベルが無い場合は前半=diffOptions[0]、後半=diffOptions[1]扱い
     const mid = Math.ceil(allItems.length / 2);
-    return difficulty === "Unit1" ? allItems.slice(0, mid) : allItems.slice(mid);
-  }, [allItems, difficulty]);
+    const idx = diffOptions.findIndex(opt => same(opt, difficulty));
+    return idx === 0 ? allItems.slice(0, mid) : allItems.slice(mid);
+  }, [allItems, difficulty, diffOptions]);
 
   // 開始可能条件
-  const canStart = useMemo(
-    () => pool.length >= 1 && name.trim().length > 0 && diffOptions.includes(difficulty),
-    [pool.length, name, difficulty]
-  );
+  const canStart = useMemo(() => {
+    const exists = diffOptions.some(opt => opt.trim().toLowerCase() === String(difficulty).trim().toLowerCase());
+    return pool.length >= 1 && name.trim().length > 0 && exists;
+  }, [pool.length, name, difficulty, diffOptions]);
 
   // qIndex 変更時/quiz開始時に入力欄リセット
   useEffect(() => { if (step === "quiz") setValue(""); }, [qIndex, step]);
@@ -215,6 +194,8 @@ function App() {
     }
   }
 
+  const [showReview, setShowReview] = useState({ visible: false, record: null });
+
   function submitAnswer(userInput) {
     const item = items[qIndex];
     if (!item) return;
@@ -245,8 +226,6 @@ function App() {
     setStep("result");
   }
 
-  const [showReview, setShowReview] = useState({ visible: false, record: null });
-
   // ---- 結果送信（別シートへ追記）----
   async function sendResult() {
     const url = import.meta.env.VITE_GAS_URL;
@@ -257,7 +236,7 @@ function App() {
       timestamp: new Date().toISOString(),
       user_name: name,
       mode: MODE_FIXED,          // 固定
-      difficulty,                // ✅ 選択した難易度（Unit1/Unit2）
+      difficulty,                // ✅ 選択した難易度
       score: answers.filter((a) => a && a.ok).length,
       duration_sec: USE_TOTAL_TIMER ? (TOTAL_TIME_SEC_DEFAULT - totalLeft) : null,
       question_set_id: `auto-${Date.now()}`,
@@ -512,9 +491,9 @@ function QuizFrame({
   const [practice, setPractice] = useState("");
   const [practiceMsg, setPracticeMsg] = useState("");
 
-  // 本番の解答ボタン（答え合わせ）は、レビュー表示中や未入力なら無効化
-  const disabled = showReview.visible; // ← 入力の空欄では無効化しない
-  // 練習判定（①）：成績には反映しない。正しく打てたら次の問題へ、間違いなら再入力を促す
+  // 本番の解答ボタン（答え合わせ）は、レビュー表示中は無効化
+  const disabled = showReview.visible;
+
   const handlePracticeSubmit = () => {
     const user = normalizeEn(practice);
     const cands = splitAnswerCandidates(showReview.record.correct); // "color/colour" → ["color","colour"]
@@ -541,7 +520,7 @@ function QuizFrame({
         <div style={{ fontSize: 22, color: "#111" }}>{display}</div>
       </div>
 
-      {/* 本番の解答入力（通常どおり） */}
+      {/* 本番の解答入力 */}
       <label style={labelStyle}>英単語を入力</label>
       <input
         style={{ ...inputStyle, width: "92%", margin: "0 auto" }}
@@ -570,12 +549,10 @@ function QuizFrame({
           </div>
 
           {showReview.record.ok ? (
-            // ✅ 正解時：従来どおり「次の問題へ」だけ表示
             <button style={{ ...primaryBtnStyle, marginTop: 8 }} onClick={onCloseReview}>
               次の問題へ
             </button>
           ) : (
-            // ❌ 不正解時：①練習用フォーム＋「回答する」／②次の問題に進む
             <>
               <div style={{ textAlign: "left", margin: "8px 0 6px", color: "#333" }}>
                 ① 正しい単語を入力（練習用・成績には反映しません）
@@ -688,3 +665,6 @@ const chipStyle = {
   cursor: "pointer",
   fontSize: 14,
 };
+
+// ✅ default export はファイル末尾に1回だけ
+export default App;
