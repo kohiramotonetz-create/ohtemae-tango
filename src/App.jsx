@@ -1,17 +1,26 @@
 // App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import wordsCsv from "./words.csv?raw"; // CSV: A=No. / B=問題 / C=解答（複数は "/" 区切り推奨）/ D=レベル(例: Unit1/Unit2)
+import wordsCsv from "./words.csv?raw"; // CSV: A=No. / B=英単語 / C=日本語 / D=Unit
 
 // ========= 設定 =========
 const QUESTION_COUNT = 20;
 const TOTAL_TIME_SEC_DEFAULT = 300; // 全体5分
 const USE_TOTAL_TIMER = true;
 const SKIP_HEADER = false;                 // CSV 先頭にヘッダーがあるなら true
-const TARGET_SHEET_NAME = "英単語ログ";     // ← 送信先シート名（任意に変更OK）
+const TARGET_SHEET_NAME = "英単語ログ";
 const MODE_FIXED = "日本語→英単語";
 const APP_NAME = import.meta.env.VITE_APP_NAME;
 
 // ========= ユーティリティ =========
+function canonLevelLabel(s) {
+  if (!s) return "";
+  return String(s)
+    .normalize("NFKC")    // 全角→半角など互換正規化
+    .toLowerCase()        // 大小無視
+    .replace(/\s+/g, "")  // 空白無視
+    .replace(/[-_]/g, ""); // ハイフン/アンダースコア無視
+}
+
 function parseCsvRaw(csvText) {
   const rows = [];
   let i = 0, field = "", row = [], inQuotes = false;
@@ -41,22 +50,14 @@ function parseCsvRaw(csvText) {
 }
 
 function trimSpaces(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
-function normalizeEn(s) {
-  // 必要ならハイフン/アポストロフィ無視も可: .replace(/[-’']/g, "")
-  return trimSpaces(s).toLowerCase();
-}
+function normalizeEn(s) { return trimSpaces(s).toLowerCase(); }
 
-// 複数解答候補の分割（半角/全角スラッシュ、カンマ、日本語読点、セミコロン、縦棒も許容）
 function splitAnswerCandidates(s) {
   if (!s) return [];
   const DELIMS = /[\/／,、;|]/g;
-  return s
-    .split(DELIMS)
-    .map(part => normalizeEn(part))
-    .filter(part => part.length > 0);
+  return s.split(DELIMS).map(part => normalizeEn(part)).filter(Boolean);
 }
 
-// 日本語→英単語（候補のどれかに一致で正解）
 function judgeAnswerJPtoEN(user, item) {
   const userNorm = normalizeEn(user);
   const candidates = splitAnswerCandidates(item.en); // 例: "color/colour" → ["color","colour"]
@@ -99,56 +100,60 @@ function App() {
   const totalTimerRef = useRef(null);
   const totalPausedRef = useRef(false); // ★全体タイマー一時停止フラグ
 
+  // CSV読み込み（No./英単語/日本語/Unit）
   useEffect(() => {
-  let rows = parseCsvRaw(wordsCsv);
+    let rows = parseCsvRaw(wordsCsv);
 
-  // ヘッダー除去（1行目に "No.,英単語,日本語,Unit" がある前提）
-  if (rows.length) {
+    if (!rows || !rows.length) {
+      setAllItems([]);
+      setDiffOptions(["Unit1", "Unit2"]);
+      return;
+    }
+
+    // ヘッダー除去（1行目に "No.,英単語,日本語,Unit" がある前提）
     const header = rows[0].map(String);
     const looksHeader =
-      /No|番号/i.test(header[0]) ||
-      /英単語|english|word/i.test(header[1]) ||
-      /日本語|意味|meaning/i.test(header[2]) ||
-      /Unit|レベル|level|難易度/i.test(header[3]);
+      /No|番号/i.test(header[0] ?? "") ||
+      /英単語|english|word/i.test(header[1] ?? "") ||
+      /日本語|意味|meaning/i.test(header[2] ?? "") ||
+      /Unit|レベル|level|難易度/i.test(header[3] ?? "");
     if (SKIP_HEADER || looksHeader) rows = rows.slice(1);
-  }
 
-  // CSV → データ化（列構成：No./英単語/日本語/Unit）
-  const mapped = rows
-    .filter(r => r.length >= 4 && r[1] && r[2])
-    .map(r => ({
-      no: String(r[0] ?? "").trim(),
-      en: String(r[1] ?? "").trim(),   // 英単語（解答）
-      jp: String(r[2] ?? "").trim(),   // 日本語（問題）
-      level: String(r[3] ?? "").trim() // Unit（難易度）
-    }));
-  setAllItems(mapped);
+    // CSV → データ化（列構成：No./英単語/日本語/Unit）
+    const mapped = rows
+      .filter(r => r.length >= 4 && r[1] && r[2])
+      .map(r => ({
+        no: String(r[0] ?? "").trim(),
+        en: String(r[1] ?? "").trim(),   // 英単語（解答）
+        jp: String(r[2] ?? "").trim(),   // 日本語（問題）
+        level: String(r[3] ?? "").trim() // Unit（難易度）
+      }));
+    setAllItems(mapped);
 
-  // 難易度ボタン（Unit列のユニーク値を抽出）
-  const seen = new Map();
-  for (const it of mapped) {
-    const raw = (it.level || "").trim();
-    if (!raw) continue;
-    const key = canonLevelLabel(raw);
-    if (!key) continue;
-    if (!seen.has(key)) seen.set(key, raw);
-  }
-  const uniq = Array.from(seen.values());
-  if (uniq.length) {
-    setDiffOptions(uniq);
-    setDifficulty(prev => {
-      const prevKey = canonLevelLabel(prev);
-      const exists = uniq.some(u => canonLevelLabel(u) === prevKey);
-      return exists ? prev : uniq[0];
-    });
-  }
-}, []);
-
+    // 難易度ボタン（Unit列のユニーク値を抽出：表記ゆれ吸収）
+    const seen = new Map(); // key: canonical, value: original label
+    for (const it of mapped) {
+      const raw = (it.level || "").trim();
+      if (!raw) continue;
+      const key = canonLevelLabel(raw);
+      if (!key) continue;
+      if (!seen.has(key)) seen.set(key, raw);
+    }
+    const uniq = Array.from(seen.values());
+    if (uniq.length) {
+      setDiffOptions(uniq);
+      setDifficulty(prev => {
+        const prevKey = canonLevelLabel(prev);
+        const exists = uniq.some(u => canonLevelLabel(u) === prevKey);
+        return exists ? prev : uniq[0];
+      });
+    }
+  }, []);
 
   // ✅ 難易度でプールを切替（level列がある場合は厳密一致、無い場合は前半/後半）
   const pool = useMemo(() => {
     if (!allItems.length) return [];
-    const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+    const same = (a, b) => canonLevelLabel(a) === canonLevelLabel(b);
 
     const hasLevelCol = allItems.some(it => String(it.level || "").trim().length > 0);
     if (hasLevelCol) {
@@ -163,7 +168,7 @@ function App() {
 
   // 開始可能条件
   const canStart = useMemo(() => {
-    const exists = diffOptions.some(opt => opt.trim().toLowerCase() === String(difficulty).trim().toLowerCase());
+    const exists = diffOptions.some(opt => canonLevelLabel(opt) === canonLevelLabel(difficulty));
     return pool.length >= 1 && name.trim().length > 0 && exists;
   }, [pool.length, name, difficulty, diffOptions]);
 
@@ -185,9 +190,7 @@ function App() {
       if (totalTimerRef.current) clearInterval(totalTimerRef.current);
       totalTimerRef.current = setInterval(() => {
         setTotalLeft((t) => {
-          // ★一時停止中はカウントを進めない
-          if (totalPausedRef.current) return t;
-
+          if (totalPausedRef.current) return t; // ★レビュー中は停止
           if (t <= 1) {
             clearInterval(totalTimerRef.current);
             finishQuiz();
@@ -206,16 +209,10 @@ function App() {
     if (!item) return;
 
     const ok = judgeAnswerJPtoEN(userInput, item);
-    const record = {
-      qIndex,
-      q: item.jp,
-      a: userInput,
-      correct: item.en, // 複数候補原文（UI表示用）
-      ok,
-    };
+    const record = { qIndex, q: item.jp, a: userInput, correct: item.en, ok };
     setAnswers((prev) => [...prev, record]);
     setShowReview({ visible: true, record });
-    if (USE_TOTAL_TIMER) totalPausedRef.current = true; // ★レビュー表示中は停止
+    if (USE_TOTAL_TIMER) totalPausedRef.current = true;
   }
 
   function nextQuestion() {
@@ -237,23 +234,22 @@ function App() {
     if (!url) throw new Error("VITE_GAS_URL is empty");
 
     const payload = {
-      subject: APP_NAME, // ★追加：GAS側のタブ名に使う（= VITE_APP_NAME）
+      subject: APP_NAME,
       timestamp: new Date().toISOString(),
       user_name: name,
-      mode: MODE_FIXED,          // 固定
-      difficulty,                // ✅ 選択した難易度
+      mode: MODE_FIXED,
+      difficulty,
       score: answers.filter((a) => a && a.ok).length,
       duration_sec: USE_TOTAL_TIMER ? (TOTAL_TIME_SEC_DEFAULT - totalLeft) : null,
       question_set_id: `auto-${Date.now()}`,
       questions: items.map((it) => ({ en: it.en, jp: it.jp, level: it.level })),
       answers,
       device_info: navigator.userAgent,
-      targetSheet: TARGET_SHEET_NAME, // ← 書き込み先シート
+      targetSheet: TARGET_SHEET_NAME,
     };
 
     const body = new URLSearchParams({ payload: JSON.stringify(payload) });
 
-    // no-cors で投げる（応答本文は読まない）
     fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
@@ -290,9 +286,9 @@ function App() {
               onClick={() => setDifficulty(opt)}
               style={{
                 ...chipStyle,
-                background: difficulty === opt ? "#111" : "#f3f3f3",
-                color: difficulty === opt ? "#fff" : "#111",
-                borderColor: difficulty === opt ? "#111" : "#ddd",
+                background: canonLevelLabel(difficulty) === canonLevelLabel(opt) ? "#111" : "#f3f3f3",
+                color: canonLevelLabel(difficulty) === canonLevelLabel(opt) ? "#fff" : "#111",
+                borderColor: canonLevelLabel(difficulty) === canonLevelLabel(opt) ? "#111" : "#ddd",
               }}
             >
               {opt}
@@ -492,20 +488,18 @@ function QuizFrame({
   index, total, display, totalLeft,
   value, setValue, onSubmit, showReview, onCloseReview,
 }) {
-  // 練習用フォームのローカル状態（不正解のときだけ使う）
   const [practice, setPractice] = useState("");
   const [practiceMsg, setPracticeMsg] = useState("");
 
-  // 本番の解答ボタン（答え合わせ）は、レビュー表示中は無効化
   const disabled = showReview.visible;
 
   const handlePracticeSubmit = () => {
     const user = normalizeEn(practice);
-    const cands = splitAnswerCandidates(showReview.record.correct); // "color/colour" → ["color","colour"]
+    const cands = splitAnswerCandidates(showReview.record.correct);
     if (cands.includes(user)) {
       setPracticeMsg("");
       setPractice("");
-      onCloseReview(); // 正しく書けたら次の問題へ
+      onCloseReview();
     } else {
       setPracticeMsg("不正解。もう一度入力してみよう。");
     }
@@ -525,7 +519,6 @@ function QuizFrame({
         <div style={{ fontSize: 22, color: "#111" }}>{display}</div>
       </div>
 
-      {/* 本番の解答入力 */}
       <label style={labelStyle}>英単語を入力</label>
       <input
         style={{ ...inputStyle, width: "92%", margin: "0 auto" }}
@@ -542,7 +535,6 @@ function QuizFrame({
         答え合わせ
       </button>
 
-      {/* 答え合わせ（レビュー） */}
       {showReview.visible && (
         <div style={reviewStyle}>
           <div style={{ fontWeight: "bold", marginBottom: 8 }}>答え合わせ</div>
@@ -578,16 +570,10 @@ function QuizFrame({
               />
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-                <button
-                  style={primaryBtnStyle}
-                  onClick={handlePracticeSubmit}
-                >
+                <button style={primaryBtnStyle} onClick={handlePracticeSubmit}>
                   回答する（練習）
                 </button>
-                <button
-                  style={{ ...primaryBtnStyle, background: "#555" }}
-                  onClick={onCloseReview}
-                >
+                <button style={{ ...primaryBtnStyle, background: "#555" }} onClick={onCloseReview}>
                   ② 次の問題に進む
                 </button>
               </div>
