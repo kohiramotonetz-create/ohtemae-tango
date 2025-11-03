@@ -13,7 +13,7 @@ const APP_NAME = import.meta.env.VITE_APP_NAME;
 
 // 手入力補助用の候補（入力は自由。これ以外でもOK）
 const SUGGEST_UNITS = [
-  "Unit1","Unit2","Unit3","Unit4","Unit5","Unit6","Unit7","Unit8"
+  "Unit１","Unit２","Unit３","Unit４","Unit５","Unit６","Unit７","Unit８"
 ];
 
 // ========= ユーティリティ =========
@@ -246,7 +246,7 @@ function App() {
   if (step === "start") {
     content = (
       <div style={wrapStyle}>
-        <h1 style={{ fontSize: 28, marginBottom: 8 }}>中３英単語 不規則系単語</h1>
+        <h1 style={{ fontSize: 28, marginBottom: 8 }}>大手前　ユメタン英単語</h1>
         <p style={{ opacity: 0.8, marginBottom: 16 }}>名前とユニットを入力してスタート</p>
 
         <label style={labelStyle}>あなたの名前</label>
