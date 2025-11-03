@@ -10,7 +10,21 @@ const TARGET_SHEET_NAME = "英単語ログ";     // ← 送信先シート名（
 const MODE_FIXED = "日本語→英単語";
 const APP_NAME = import.meta.env.VITE_APP_NAME;
 
-const DIFF_OPTIONS = ["Unit1", "Unit2"]; // ✅ 難易度（ユニット）
+export default function App() {
+  const [diffOptions, setDiffOptions] = useState(["Unit1", "Unit2"]);
+  const [difficulty, setDifficulty] = useState(/* 仮の初期値 */ "Unit1");
+    useEffect(() => {
+      ...
+      setAllItems(mapped);
+      // ユニークな level 値を抽出
+      const uniq = [...new Set(mapped.map(it => (it.level ?? "").trim()).filter(Boolean))];
+      if (uniq.length) {
+        setDiffOptions(uniq);
+        setDifficulty(prev => uniq.includes(prev) ? prev : uniq[0]); // 初期選択を安全に
+      }
+    }, []);
+}
+
 
 // ========= ユーティリティ =========
 function parseCsvRaw(csvText) {
@@ -135,7 +149,7 @@ export default function App() {
 
   // 開始可能条件
   const canStart = useMemo(
-    () => pool.length >= 1 && name.trim().length > 0 && DIFF_OPTIONS.includes(difficulty),
+    () => pool.length >= 1 && name.trim().length > 0 && diffOptions.includes(difficulty),
     [pool.length, name, difficulty]
   );
 
@@ -255,7 +269,7 @@ export default function App() {
         {/* ✅ 難易度（ユニット）選択 */}
         <label style={labelStyle}>ユニットを選択</label>
         <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-          {DIFF_OPTIONS.map((opt) => (
+          {diffOptions.map((opt) => (
             <button
               key={opt}
               type="button"
