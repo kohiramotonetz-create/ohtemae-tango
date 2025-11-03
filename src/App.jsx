@@ -12,18 +12,19 @@ const APP_NAME = import.meta.env.VITE_APP_NAME;
 
 export default function App() {
   const [diffOptions, setDiffOptions] = useState(["Unit1", "Unit2"]);
-  const [difficulty, setDifficulty] = useState(/* 仮の初期値 */ "Unit1");
-    useEffect(() => {
-      ...
-      setAllItems(mapped);
-      // ユニークな level 値を抽出
-      const uniq = [...new Set(mapped.map(it => (it.level ?? "").trim()).filter(Boolean))];
-      if (uniq.length) {
-        setDiffOptions(uniq);
-        setDifficulty(prev => uniq.includes(prev) ? prev : uniq[0]); // 初期選択を安全に
-      }
-    }, []);
+  const [difficulty, setDifficulty] = useState("Unit1");
+
+  useEffect(() => {
+    // ...
+    setAllItems(mapped);
+    const uniq = [...new Set(mapped.map(it => (it.level ?? "").trim()).filter(Boolean))];
+    if (uniq.length) {
+      setDiffOptions(uniq);
+      setDifficulty(prev => uniq.includes(prev) ? prev : uniq[0]);
+    }
+  }, []);
 }
+
 
 
 // ========= ユーティリティ =========
