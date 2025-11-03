@@ -99,46 +99,51 @@ function App() {
   const totalTimerRef = useRef(null);
   const totalPausedRef = useRef(false); // ★全体タイマー一時停止フラグ
 
-  // CSV読み込み（No./問題/解答/レベル）
   useEffect(() => {
-    let rows = parseCsvRaw(wordsCsv);
-    if (rows.length) {
-      const [h0,h1,h2,h3] = rows[0].map(String);
-      const looksHeader =
-        /No|番号/i.test(h0) ||
-        /問題|question|問/i.test(h1) ||
-        /解答|解答例|answer|解答欄/i.test(h2) ||
-        /難易度|レベル|level|unit/i.test(h3);
-      if (SKIP_HEADER || looksHeader) rows = rows.slice(1);
-    }
-    const mapped = rows
-      .filter(r => r.length >= 3 && r[1] && r[2])
-      .map(r => ({
-        no: String(r[0] ?? "").trim(),
-        jp: String(r[1] ?? "").trim(),  // 表示（日本語の設問）
-        en: String(r[2] ?? "").trim(),  // 正解（英単語・複数候補OK）
-        level: String(r[3] ?? "").trim(), // Unit1 / Unit2 / ... 任意
-      }));
-    setAllItems(mapped);
+  let rows = parseCsvRaw(wordsCsv);
 
-    // ユニークな level 値を抽出（大小無視・先頭出現の表記を採用）
-    const seen = new Map(); // key: canonical lower, value: original label
-    for (const it of mapped) {
-      const raw = (it.level ?? "").trim();
-      if (!raw) continue;
-      const key = raw.toLowerCase();
-      if (!seen.has(key)) seen.set(key, raw);
-    }
-    const uniq = Array.from(seen.values());
-    if (uniq.length) {
-      setDiffOptions(uniq);
-      setDifficulty(prev => {
-        const prevKey = String(prev).trim().toLowerCase();
-        const exists = uniq.some(u => u.trim().toLowerCase() === prevKey);
-        return exists ? prev : uniq[0]; // 初期選択を安全に
-      });
-    }
-  }, []);
+  // ヘッダー除去（1行目に "No.,英単語,日本語,Unit" がある前提）
+  if (rows.length) {
+    const header = rows[0].map(String);
+    const looksHeader =
+      /No|番号/i.test(header[0]) ||
+      /英単語|english|word/i.test(header[1]) ||
+      /日本語|意味|meaning/i.test(header[2]) ||
+      /Unit|レベル|level|難易度/i.test(header[3]);
+    if (SKIP_HEADER || looksHeader) rows = rows.slice(1);
+  }
+
+  // CSV → データ化（列構成：No./英単語/日本語/Unit）
+  const mapped = rows
+    .filter(r => r.length >= 4 && r[1] && r[2])
+    .map(r => ({
+      no: String(r[0] ?? "").trim(),
+      en: String(r[1] ?? "").trim(),   // 英単語（解答）
+      jp: String(r[2] ?? "").trim(),   // 日本語（問題）
+      level: String(r[3] ?? "").trim() // Unit（難易度）
+    }));
+  setAllItems(mapped);
+
+  // 難易度ボタン（Unit列のユニーク値を抽出）
+  const seen = new Map();
+  for (const it of mapped) {
+    const raw = (it.level || "").trim();
+    if (!raw) continue;
+    const key = canonLevelLabel(raw);
+    if (!key) continue;
+    if (!seen.has(key)) seen.set(key, raw);
+  }
+  const uniq = Array.from(seen.values());
+  if (uniq.length) {
+    setDiffOptions(uniq);
+    setDifficulty(prev => {
+      const prevKey = canonLevelLabel(prev);
+      const exists = uniq.some(u => canonLevelLabel(u) === prevKey);
+      return exists ? prev : uniq[0];
+    });
+  }
+}, []);
+
 
   // ✅ 難易度でプールを切替（level列がある場合は厳密一致、無い場合は前半/後半）
   const pool = useMemo(() => {
