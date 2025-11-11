@@ -185,28 +185,34 @@ function App() {
   useEffect(() => () => { if (totalTimerRef.current) clearInterval(totalTimerRef.current); }, []);
 
   function startQuiz() {
-    const quizSet = sampleUnique(pool, Math.min(QUESTION_COUNT, pool.length));
-    setItems(quizSet);
-    setAnswers([]);
-    setQIndex(0);
-    setStep("quiz");
+  // ✅ 再受験時に送信状態だけリセット（名前・ユニットは触らない）
+  setSent(false);
+  setSending(false);
+  setProgress(0);
 
-    if (USE_TOTAL_TIMER) {
-      setTotalLeft(TOTAL_TIME_SEC_DEFAULT);
-      if (totalTimerRef.current) clearInterval(totalTimerRef.current);
-      totalTimerRef.current = setInterval(() => {
-        setTotalLeft((t) => {
-          if (totalPausedRef.current) return t; // ★レビュー中は停止
-          if (t <= 1) {
-            clearInterval(totalTimerRef.current);
-            finishQuiz();
-            return 0;
-          }
-          return t - 1;
-        });
-      }, 1000);
-    }
+  const quizSet = sampleUnique(pool, Math.min(QUESTION_COUNT, pool.length));
+  setItems(quizSet);
+  setAnswers([]);
+  setQIndex(0);
+  setStep("quiz");
+
+  if (USE_TOTAL_TIMER) {
+    setTotalLeft(TOTAL_TIME_SEC_DEFAULT);
+    if (totalTimerRef.current) clearInterval(totalTimerRef.current);
+    totalTimerRef.current = setInterval(() => {
+      setTotalLeft((t) => {
+        if (totalPausedRef.current) return t; // ★レビュー中は停止
+        if (t <= 1) {
+          clearInterval(totalTimerRef.current);
+          finishQuiz();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
   }
+}
+
 
   const [showReview, setShowReview] = useState({ visible: false, record: null });
 
@@ -505,9 +511,25 @@ function App() {
                 flexWrap: "wrap",
               }}
             >
-              <button style={primaryBtnStyle} onClick={() => setStep("start")}>
-                ホームへ戻る
-              </button>
+              <button
+              style={primaryBtnStyle}
+                onClick={() => {
+                      // ✅ 送信状態・進行だけリセット（名前・ユニットは保持）
+                      setSent(false);
+                      setSending(false);
+                      setProgress(0);
+                      setAnswers([]);
+                      setItems([]);
+                      setQIndex(0);
+                      if (USE_TOTAL_TIMER && totalTimerRef.current) clearInterval(totalTimerRef.current);
+                      totalPausedRef.current = false;         
+                      // ❌ setName("") や setDifficulty("") は呼ばない（＝保持）
+                      setStep("start");
+                      }}
+                    >
+                      ホームへ戻る
+                    </button>
+
               {wrongOnly.length > 0 && (
                 <button style={primaryBtnStyle} onClick={handleRetryWrong}>
                   間違えた問題を復習
