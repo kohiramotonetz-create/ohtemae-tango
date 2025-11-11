@@ -1,6 +1,8 @@
 // App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import wordsCsv from "./words.csv?raw"; // CSV: A=No. / B=英単語 / C=日本語 / D=Unit
+// ★ 認証用：生徒番号CSV（B列の2行目以降）
+import studentsNumbersCsv from "./students.number.csv?raw";
 
 // ========= 設定 =========
 const QUESTION_COUNT = 20;
@@ -80,6 +82,11 @@ function sampleUnique(arr, k) {
 
 // ========= メインコンポーネント =========
 function App() {
+  // ★ 認証関連 state
+  const [authIds, setAuthIds] = useState(new Set());
+  const [studentNumber, setStudentNumber] = useState("");
+  const [authLoaded, setAuthLoaded] = useState(false);
+
   // 送信UI
   const [sending, setSending] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -93,7 +100,8 @@ function App() {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [answers, setAnswers] = useState([]);
-  const [step, setStep] = useState("start"); // start | quiz | result
+  // ★ 初期ステップを「auth」に変更
+  const [step, setStep] = useState("auth"); // auth | start | quiz | result
   const [qIndex, setQIndex] = useState(0);
 
   // 入力欄
@@ -103,6 +111,23 @@ function App() {
   const [totalLeft, setTotalLeft] = useState(TOTAL_TIME_SEC_DEFAULT);
   const totalTimerRef = useRef(null);
   const totalPausedRef = useRef(false); // ★全体タイマー一時停止フラグ
+
+  // ★ 生徒番号CSVの読み込み（B列の2行目以降を有効IDに）
+  useEffect(() => {
+    try {
+      const rows = parseCsvRaw(studentsNumbersCsv);
+      // 2行目以降のB列（index=1）
+      const ids = new Set(
+        rows.slice(1).map(r => String(r[1] ?? "").trim()).filter(Boolean)
+      );
+      setAuthIds(ids);
+    } catch (e) {
+      console.error("students.number.csv の読み込み/解析に失敗:", e);
+      setAuthIds(new Set()); // 全NG
+    } finally {
+      setAuthLoaded(true);
+    }
+  }, []);
 
   // CSV読み込み（No./英単語/日本語/Unit）
   useEffect(() => {
@@ -240,10 +265,49 @@ function App() {
     });
   }
 
+  // ★ 認証チェック
+  function tryAuth() {
+    const id = String(studentNumber).trim();
+    if (!id) return;
+    if (authIds.has(id)) {
+      setStep("start"); // 認証成功 → 元のスタート画面へ
+    } else {
+      alert("利用ライセンスがありません。");
+      // そのまま認証画面に留まる
+    }
+  }
+
   // ---- 画面描画 ----
   let content = null;
 
-  if (step === "start") {
+  // ★ 認証画面（最初に表示）
+  if (step === "auth") {
+    content = (
+      <div style={wrapStyle}>
+        <h1 style={{ fontSize: 28, marginBottom: 8 }}>利用認証</h1>
+        <p style={{ opacity: 0.8, marginBottom: 16 }}>生徒番号を入力してください。</p>
+
+        {!authLoaded ? (
+          <div style={{ fontSize: 16, opacity: 0.8 }}>読み込み中…</div>
+        ) : (
+          <>
+            <label style={labelStyle}>生徒番号</label>
+            <input
+              style={inputStyle}
+              placeholder="例：20230001"
+              value={studentNumber}
+              onChange={(e) => setStudentNumber(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") tryAuth(); }}
+              autoFocus
+            />
+            <button style={primaryBtnStyle} onClick={tryAuth}>
+              認証する
+            </button>
+          </>
+        )}
+      </div>
+    );
+  } else if (step === "start") {
     content = (
       <div style={wrapStyle}>
         <h1 style={{ fontSize: 28, marginBottom: 8 }}>大手前　ユメタン英単語</h1>
